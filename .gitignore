@@ -1,0 +1,6 @@
+work/checkpoints/*
+!work/checkpoints/.gitkeep
+work/logs/*
+!work/logs/.gitkeep
+.ipynb_checkpoints/
+__pycache__/
