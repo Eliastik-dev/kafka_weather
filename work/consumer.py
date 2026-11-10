@@ -10,6 +10,5 @@ consumer = KafkaConsumer(
     value_deserializer=lambda m: m.decode("utf-8"),
 )
 
-print(f"En écoute sur {TOPIC}... (Ctrl+C pour arrêter)")
 for message in consumer:
     print(message.value)

@@ -1,17 +1,12 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, struct, to_json, when
+from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
 
 TOPIC_IN = "weather_stream"
 TOPIC_OUT = "weather_transformed"
 BOOTSTRAP_SERVERS = "kafka:9092"
 
-spark = (
-    SparkSession.builder
-    .appName("weather-transform")
-    .master("local[*]")
-    .getOrCreate()
-)
+spark = SparkSession.builder.appName("weather-transform").master("local[*]").getOrCreate()
 spark.sparkContext.setLogLevel("WARN")
 
 schema = StructType([
@@ -24,55 +19,50 @@ schema = StructType([
     ])),
 ])
 
-raw = (
+events = (
     spark.readStream
     .format("kafka")
     .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS)
     .option("subscribe", TOPIC_IN)
     .option("startingOffsets", "earliest")
     .load()
-)
-
-parsed = (
-    raw.select(
-        col("timestamp").alias("event_time"),
-        from_json(col("value").cast("string"), schema).alias("data"),
+    .select(
+        F.col("timestamp").alias("event_time"),
+        F.from_json(F.col("value").cast("string"), schema).alias("data"),
     )
     .select(
         "event_time",
-        col("data.city").alias("city"),
-        col("data.country").alias("country"),
-        col("data.current.temperature_2m").alias("temperature"),
-        col("data.current.wind_speed_10m").alias("windspeed"),
-        col("data.current.weather_code").alias("weather_code"),
+        F.col("data.city").alias("city"),
+        F.col("data.country").alias("country"),
+        F.col("data.current.temperature_2m").alias("temperature"),
+        F.col("data.current.wind_speed_10m").alias("windspeed"),
+        F.col("data.current.weather_code").alias("weather_code"),
     )
-    .where(col("city").isNotNull())
+    .where(F.col("city").isNotNull())
 )
 
-alerts = parsed.withColumn(
-    "wind_alert_level",
-    when(col("windspeed") < 10, "level_0")
-    .when(col("windspeed") <= 20, "level_1")
-    .otherwise("level_2"),
-).withColumn(
-    "heat_alert_level",
-    when(col("temperature") < 25, "level_0")
-    .when(col("temperature") <= 35, "level_1")
-    .otherwise("level_2"),
+alerts = (
+    events
+    .withColumn(
+        "wind_alert_level",
+        F.when(F.col("windspeed") < 10, "level_0")
+        .when(F.col("windspeed") <= 20, "level_1")
+        .otherwise("level_2"),
+    )
+    .withColumn(
+        "heat_alert_level",
+        F.when(F.col("temperature") < 25, "level_0")
+        .when(F.col("temperature") <= 35, "level_1")
+        .otherwise("level_2"),
+    )
 )
 
-out = alerts.select(to_json(struct(
-    "event_time",
-    "temperature",
-    "windspeed",
-    "city",
-    "country",
-    "weather_code",
-    "wind_alert_level",
-    "heat_alert_level",
+out = alerts.select(F.to_json(F.struct(
+    "event_time", "temperature", "windspeed", "city", "country",
+    "weather_code", "wind_alert_level", "heat_alert_level",
 )).alias("value"))
 
-query = (
+(
     out.writeStream
     .format("kafka")
     .option("kafka.bootstrap.servers", BOOTSTRAP_SERVERS)
@@ -80,6 +70,5 @@ query = (
     .option("checkpointLocation", "/home/jovyan/work/checkpoints/weather_transformed")
     .outputMode("append")
     .start()
+    .awaitTermination()
 )
-
-query.awaitTermination()
